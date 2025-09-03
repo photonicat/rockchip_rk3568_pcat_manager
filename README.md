@@ -137,3 +137,47 @@ Response:
 }
 ```
 
+**modem-network-setup**
+Request:
+```json
+{
+  "command": "modem-network-setup",
+  "apn": "",
+  "user": "",
+  "password": "",
+  "auth": "",
+  "disable-connection-5g-fail-auto-reset": 0,
+  "modem-iface-auto-stop-if-wired": 1
+}
+```
+
+Response:
+```json
+{
+  "command": "modem-network-setup", 
+  "code": 0
+}
+```
+
+**modem-network-get**
+Request:
+```json
+{
+  "command": "modem-network-get"
+}
+```
+
+Response:
+```json
+{
+  "command": "modem-network-get", 
+  "code": 0,
+  "device-type": "5g",
+  "apn": "",
+  "user": "",
+  "password": "",
+  "auth": "",
+  "disable-connection-5g-fail-auto-reset": 0,
+  "modem-iface-auto-stop-if-wired": 1
+}
+```

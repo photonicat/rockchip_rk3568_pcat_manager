@@ -851,7 +851,9 @@ int main(int argc, char *argv[])
 
     if(!pcat_main_user_config_data_load())
     {
-        g_warning("Failed to load user config data, use default one!");
+        g_pcat_main_user_config_data.modem_iface_auto_stop = TRUE;
+
+        g_message("No user config data available, use default configuration.");
     }
 
     if(g_pcat_main_cmd_daemonsize)

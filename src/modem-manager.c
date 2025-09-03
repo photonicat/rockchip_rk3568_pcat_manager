@@ -374,19 +374,8 @@ static void pcat_modem_manager_external_control_exec_wait_func(
     GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
     PCatModemManagerData *mm_data = (PCatModemManagerData *)user_data;
-    GError *error = NULL;
 
-    if(g_subprocess_wait_check_finish(G_SUBPROCESS(source_object), res,
-        &error))
-    {
-        g_message("External control process exits normally.");
-    }
-    else
-    {
-        g_warning("External control process exits with error: %s",
-            error->message!=NULL ? error->message : "Unknown");
-        g_clear_error(&error);
-    }
+    g_subprocess_wait_check_finish(G_SUBPROCESS(source_object), res, NULL);
 
     g_mutex_lock(&(mm_data->mutex));
     g_object_unref(source_object);

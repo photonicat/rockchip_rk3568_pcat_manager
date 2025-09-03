@@ -137,6 +137,8 @@ Response:
 }
 ```
 
+
+
 **modem-network-setup**
 Request:
 ```json
@@ -150,6 +152,11 @@ Request:
   "modem-iface-auto-stop-if-wired": 1
 }
 ```
+
+- auto: (default) "modem-iface-auto-stop-if-wired": 1
+- 4g/5g only: (just set wan disabled)
+- ethernet only: (just set wwan disabled, )
+
 
 Response:
 ```json

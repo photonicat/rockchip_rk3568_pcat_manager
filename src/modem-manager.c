@@ -373,6 +373,7 @@ static gboolean pcat_modem_manager_external_control_exec_stdout_watch_func(
 static void pcat_modem_manager_external_control_exec_wait_func(
     GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
+    PCatModemManagerData *mm_data = (PCatModemManagerData *)user_data;
     GError *error = NULL;
 
     if(g_subprocess_wait_check_finish(G_SUBPROCESS(source_object), res,
@@ -387,7 +388,21 @@ static void pcat_modem_manager_external_control_exec_wait_func(
         g_clear_error(&error);
     }
 
+    g_mutex_lock(&(mm_data->mutex));
     g_object_unref(source_object);
+    if(mm_data->external_control_exec_stdout_read_source!=NULL)
+    {
+        g_source_destroy(mm_data->external_control_exec_stdout_read_source);
+        g_source_unref(mm_data->external_control_exec_stdout_read_source);
+        mm_data->external_control_exec_stdout_read_source = NULL;
+    }
+    mm_data->external_control_exec_stdout_stream = NULL;
+
+    if(mm_data->external_control_exec_process!=NULL)
+    {
+        mm_data->external_control_exec_process = NULL;
+    }
+    g_mutex_unlock(&(mm_data->mutex));
 }
 
 static inline gboolean pcat_modem_manager_run_external_exec(
@@ -409,8 +424,10 @@ static inline gboolean pcat_modem_manager_run_external_exec(
     {
         G_STMT_START
         {
+            g_mutex_lock(&(mm_data->mutex));
             if(mm_data->external_control_exec_process!=NULL)
             {
+                g_mutex_unlock(&(mm_data->mutex));
                 break;
             }
 
@@ -484,8 +501,10 @@ static inline gboolean pcat_modem_manager_run_external_exec(
                 }
             }
 
+
             if(mm_data->external_control_exec_process==NULL)
             {
+                g_mutex_unlock(&(mm_data->mutex));
                 g_warning("Failed to run external modem control "
                     "executable file %s: %s",
                     usb_data->external_control_exec,
@@ -520,6 +539,7 @@ static inline gboolean pcat_modem_manager_run_external_exec(
                 mm_data->external_control_exec_process, NULL,
                 pcat_modem_manager_external_control_exec_wait_func,
                 mm_data);
+            g_mutex_unlock(&(mm_data->mutex));
 
             mm_data->modem_first_run = FALSE;
         }
@@ -539,6 +559,7 @@ static inline gboolean pcat_modem_manager_run_external_exec(
 static void pcat_modem_manager_external_control_terminate(
     PCatModemManagerData *mm_data)
 {
+    g_mutex_lock(&(mm_data->mutex));
     if(mm_data->external_control_exec_stdout_read_source!=NULL)
     {
         g_source_destroy(mm_data->external_control_exec_stdout_read_source);
@@ -552,6 +573,7 @@ static void pcat_modem_manager_external_control_terminate(
         g_subprocess_force_exit(mm_data->external_control_exec_process);
         mm_data->external_control_exec_process = NULL;
     }
+    g_mutex_unlock(&(mm_data->mutex));
 }
 
 static gboolean pcat_modem_manager_scan_usb_devs(PCatModemManagerData *mm_data)
@@ -676,7 +698,8 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
 
             case PCAT_MODEM_MANAGER_STATE_READY:
             {
-                if(!mm_data->modem_rfkill_state)
+                if(!mm_data->modem_rfkill_state &&
+                    mm_data->modem_iface_enabled)
                 {
                     mm_data->modem_first_run = TRUE;
                     mm_data->modem_5g_connection_timestamp =
@@ -684,7 +707,8 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
                     mm_data->state = PCAT_MODEM_MANAGER_STATE_RUN;
                 }
 
-                if(mm_data->modem_rfkill_state || mm_data->modem_iface_enabled)
+                if(mm_data->modem_rfkill_state ||
+                    !mm_data->modem_iface_enabled)
                 {
                     pcat_modem_manager_external_control_terminate(mm_data);
 

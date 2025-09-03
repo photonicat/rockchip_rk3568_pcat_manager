@@ -881,8 +881,11 @@ int main(int argc, char *argv[])
             "communicate with other processes.");
     }
 
-    g_pcat_main_network_modem_iface_auto_stop =
-        g_pcat_main_user_config_data.modem_iface_auto_stop;
+    if(g_pcat_main_user_config_data.valid)
+    {
+        g_pcat_main_network_modem_iface_auto_stop =
+            g_pcat_main_user_config_data.modem_iface_auto_stop;
+    }
 
     if(!g_pcat_main_cmd_distro)
     {

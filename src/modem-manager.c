@@ -60,6 +60,7 @@ typedef struct _PCatModemManagerData
 
     guint scanning_timeout_id;
     guint modem_power_usage;
+    gboolean modem_iface_enabled;
 }PCatModemManagerData;
 
 static PCatModemManagerUSBData g_pcat_modem_manager_supported_dev_list[] =
@@ -373,7 +374,6 @@ static void pcat_modem_manager_external_control_exec_wait_func(
     GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
     GError *error = NULL;
-    PCatModemManagerData *mm_data = (PCatModemManagerData *)user_data;
 
     if(g_subprocess_wait_check_finish(G_SUBPROCESS(source_object), res,
         &error))
@@ -387,16 +387,7 @@ static void pcat_modem_manager_external_control_exec_wait_func(
         g_clear_error(&error);
     }
 
-    if(mm_data->external_control_exec_stdout_read_source!=NULL)
-    {
-        g_source_destroy(mm_data->external_control_exec_stdout_read_source);
-        mm_data->external_control_exec_stdout_read_source = NULL;
-    }
-
-    mm_data->external_control_exec_stdout_stream = NULL;
-
-    g_object_unref(mm_data->external_control_exec_process);
-    mm_data->external_control_exec_process = NULL;
+    g_object_unref(source_object);
 }
 
 static inline gboolean pcat_modem_manager_run_external_exec(
@@ -545,6 +536,24 @@ static inline gboolean pcat_modem_manager_run_external_exec(
     return ret;
 }
 
+static void pcat_modem_manager_external_control_terminate(
+    PCatModemManagerData *mm_data)
+{
+    if(mm_data->external_control_exec_stdout_read_source!=NULL)
+    {
+        g_source_destroy(mm_data->external_control_exec_stdout_read_source);
+        g_source_unref(mm_data->external_control_exec_stdout_read_source);
+        mm_data->external_control_exec_stdout_read_source = NULL;
+    }
+    mm_data->external_control_exec_stdout_stream = NULL;
+
+    if(mm_data->external_control_exec_process!=NULL)
+    {
+        g_subprocess_force_exit(mm_data->external_control_exec_process);
+        mm_data->external_control_exec_process = NULL;
+    }
+}
+
 static gboolean pcat_modem_manager_scan_usb_devs(PCatModemManagerData *mm_data)
 {
     libusb_device *dev;
@@ -674,31 +683,15 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
                         g_get_monotonic_time();
                     mm_data->state = PCAT_MODEM_MANAGER_STATE_RUN;
                 }
-                else
+
+                if(mm_data->modem_rfkill_state || mm_data->modem_iface_enabled)
                 {
-                    if(mm_data->external_control_exec_stdout_read_source!=NULL)
+                    pcat_modem_manager_external_control_terminate(mm_data);
+
+                    for(i=0;i<10 && mm_data->work_flag;i++)
                     {
-                        g_source_destroy(
-                            mm_data->external_control_exec_stdout_read_source);
-                        g_source_unref(
-                            mm_data->external_control_exec_stdout_read_source);
-                        mm_data->external_control_exec_stdout_read_source =
-                            NULL;
+                        g_usleep(100000);
                     }
-                    mm_data->external_control_exec_stdout_stream = NULL;
-
-                    if(mm_data->external_control_exec_process!=NULL)
-                    {
-                        g_subprocess_force_exit(
-                            mm_data->external_control_exec_process);
-
-                        for(i=0;i<10 && mm_data->work_flag;i++)
-                        {
-                            g_usleep(100000);
-                        }
-                    }
-
-                    g_usleep(100000);
                 }
 
                 break;
@@ -706,14 +699,19 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
 
             case PCAT_MODEM_MANAGER_STATE_RUN:
             {
-                if(!pcat_main_is_running_on_distro())
+                if(pcat_main_is_running_on_distro())
+                {
+                    g_usleep(1000000);
+                    break;
+                }
+
+                if(mm_data->modem_iface_enabled)
                 {
                     pcat_modem_manager_scan_usb_devs(mm_data);
                 }
-
-                if(!mm_data->work_flag)
+                else
                 {
-                    break;
+                    mm_data->state = PCAT_MODEM_MANAGER_STATE_READY;
                 }
 
                 if(!mm_data->work_flag)
@@ -733,18 +731,7 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
         }
     }
 
-    if(mm_data->external_control_exec_stdout_read_source!=NULL)
-    {
-        g_source_destroy(mm_data->external_control_exec_stdout_read_source);
-        g_source_unref(mm_data->external_control_exec_stdout_read_source);
-        mm_data->external_control_exec_stdout_read_source = NULL;
-    }
-    mm_data->external_control_exec_stdout_stream = NULL;
-
-    if(mm_data->external_control_exec_process!=NULL)
-    {
-        g_subprocess_force_exit(mm_data->external_control_exec_process);
-    }
+    pcat_modem_manager_external_control_terminate(mm_data);
 
     return NULL;
 }
@@ -817,6 +804,7 @@ gboolean pcat_modem_manager_init()
 
     g_pcat_modem_manager_data.modem_exist = FALSE;
     g_pcat_modem_manager_data.system_first_run = TRUE;
+    g_pcat_modem_manager_data.modem_iface_enabled = TRUE;
     g_pcat_modem_manager_data.modem_mode_table = g_hash_table_new_full(
         g_str_hash, g_str_equal, NULL, NULL);
     g_hash_table_insert(g_pcat_modem_manager_data.modem_mode_table,
@@ -1001,3 +989,12 @@ guint pcat_modem_manager_device_power_usage_get()
     return g_pcat_modem_manager_data.modem_power_usage;
 }
 
+void pcat_modem_manager_iface_state_set(gboolean enabled)
+{
+    g_pcat_modem_manager_data.modem_iface_enabled = enabled;
+}
+
+gboolean pcat_modem_manager_iface_state_get()
+{
+    return g_pcat_modem_manager_data.modem_iface_enabled;
+}

@@ -601,9 +601,7 @@ static void pcat_pmu_manager_status_led_beeper_v2_set_interval(
 static void pcat_pmu_manager_status_led_beeper_v2_get_interval(
     PCatPMUManagerData *pmu_data)
 {
-    guint8 state;
-
-    state = 0xFF;
+    guint8 state = 0xFF;
 
     pcat_pmu_pm_dev_write_data_request(pmu_data,
         PCAT_PMU_MANAGER_COMMAND_STATUS_LED_BEEPER_V2_SET, &state, 1, TRUE);

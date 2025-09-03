@@ -42,8 +42,7 @@ const gchar * const g_pcat_main_iface_names[
     "wwan_lte_v6"
 };
 
-const gboolean const g_pcat_main_iface_is_ipv6[
-    PCAT_MAIN_IFACE_LAST] =
+const gboolean g_pcat_main_iface_is_ipv6[PCAT_MAIN_IFACE_LAST] =
 {
     FALSE,
     TRUE,
@@ -78,6 +77,7 @@ static PCatManagerRouteMode g_pcat_main_network_route_mode =
     PCAT_MANAGER_ROUTE_MODE_NONE;
 static gboolean g_pcat_main_mwan_route_check_flag = TRUE;
 static gboolean g_pcat_main_connection_check_flag = TRUE;
+static gboolean g_pcat_main_network_modem_iface_auto_stop = TRUE;
 
 static PCatManagerMainConfigData g_pcat_main_config_data = {0};
 static PCatManagerUserConfigData g_pcat_main_user_config_data =
@@ -415,6 +415,13 @@ static gboolean pcat_main_user_config_data_load()
     uconfig_data->modem_5g_fail_timeout = g_key_file_get_integer(
         keyfile, "Modem", "Connection5GFailTimeout", NULL);
 
+    uconfig_data->modem_iface_auto_stop = TRUE;
+    if(g_key_file_has_key(keyfile, "Modem", "IfaceAutoStop", NULL))
+    {
+        uconfig_data->modem_iface_auto_stop = g_key_file_get_integer(
+            keyfile, "Modem", "IfaceAutoStop", NULL);
+    }
+
     if(uconfig_data->modem_5g_fail_timeout < 60)
     {
         uconfig_data->modem_5g_fail_timeout = 600;
@@ -507,6 +514,8 @@ static gboolean pcat_main_user_config_data_save()
         uconfig_data->modem_disable_5g_fail_auto_reset ? 1 : 0);
     g_key_file_set_integer(keyfile, "Modem", "Connection5GFailTimeout",
         uconfig_data->modem_5g_fail_timeout);
+    g_key_file_set_integer(keyfile, "Modem", "IfaceAutoStop",
+        uconfig_data->modem_iface_auto_stop);
 
     ret = g_key_file_save_to_file(keyfile, PCAT_MAIN_USER_CONFIG_FILE,
         &error);
@@ -540,46 +549,20 @@ static gboolean pcat_main_sigterm_func(gpointer user_data)
 
 static void *pcat_main_mwan_policy_check_thread_func(void *user_data)
 {
-    guint i, j;
+    guint i;
     gchar *command;
     gchar *interface_status_stdout = NULL;
-    gchar *mwan3_stdout = NULL;
     struct json_tokener *tokener;
-    struct json_object *root, *child, *protocol, *policies, *rules, *rule;
-    struct json_object *interfaces, *interface;
-    guint rules_len;
-    const gchar *iface;
-    guint percent;
-    gboolean ret;
-    PCatMainIfaceType route_iface;
-    gboolean iface_status[PCAT_MAIN_IFACE_LAST];
-    gboolean mwan3_interface_check_flag;
-    gint64 mwan3_interface_check_timestamp;
-    gboolean mwan3_status_all_not_running;
+    struct json_object *root, *child;
     const gchar *iface_protocol_type;
-
-    mwan3_interface_check_timestamp = g_get_monotonic_time();
-
-    i = 0;
-    while(g_pcat_main_mwan_route_check_flag)
-    {
-        if(i > PCAT_MAIN_MWAN_STATUS_CHECK_BOOT_WAIT * 10)
-        {
-            break;
-        }
-
-        i++;
-        g_usleep(100000);
-    }
+    gboolean wan_ethernet_available;
 
     while(g_pcat_main_mwan_route_check_flag)
     {
-        mwan3_interface_check_flag = TRUE;
+        wan_ethernet_available = FALSE;
 
         for(i=0;i<PCAT_MAIN_IFACE_LAST;i++)
         {
-            iface_status[i] = FALSE;
-
             command = g_strdup_printf("ubus call network.interface.%s status",
                 g_pcat_main_iface_names[i]);
             g_spawn_command_line_sync(command, &interface_status_stdout,
@@ -619,7 +602,6 @@ static void *pcat_main_mwan_policy_check_thread_func(void *user_data)
                     break;
                 }
 
-                ret = FALSE;
                 iface_protocol_type = g_pcat_main_iface_is_ipv6[i] ?
                     "ipv6-address" : "ipv4-address";
                 if(json_object_object_get_ex(root, iface_protocol_type,
@@ -628,12 +610,11 @@ static void *pcat_main_mwan_policy_check_thread_func(void *user_data)
                     if(json_object_get_type(child)==json_type_array &&
                        json_object_array_length(child) > 0)
                     {
-                        ret = TRUE;
+                        if(i==0)
+                        {
+                            wan_ethernet_available = TRUE;
+                        }
                     }
-                }
-                if(ret)
-                {
-                    iface_status[i] = TRUE;
                 }
 
                 json_object_put(root);
@@ -643,266 +624,55 @@ static void *pcat_main_mwan_policy_check_thread_func(void *user_data)
             g_free(interface_status_stdout);
         }
 
-        g_spawn_command_line_sync("ubus call mwan3 status", &mwan3_stdout,
-            NULL, NULL, NULL);
-
-        ret = FALSE;
-
-        G_STMT_START
+        if(g_pcat_main_network_modem_iface_auto_stop)
         {
-            if(mwan3_stdout==NULL)
+            pcat_modem_manager_iface_state_set(!wan_ethernet_available);
+
+            if(wan_ethernet_available &&
+                g_pcat_main_network_route_mode!=PCAT_MANAGER_ROUTE_MODE_WIRED)
             {
-                break;
-            }
-
-            tokener = json_tokener_new();
-            root = json_tokener_parse_ex(tokener, mwan3_stdout,
-                strlen(mwan3_stdout));
-            json_tokener_free(tokener);
-
-            if(root==NULL)
-            {
-                break;
-            }
-
-            if(!json_object_object_get_ex(root, "interfaces", &interfaces))
-            {
-                json_object_put(root);
-
-                break;
-            }
-
-            mwan3_status_all_not_running = TRUE;
-
-            for(i=0;i<PCAT_MAIN_IFACE_LAST;i++)
-            {
-                if(!iface_status[i])
+                for(i=0;i<PCAT_MAIN_IFACE_LAST;i++)
                 {
-                    continue;
-                }
-
-                if(!json_object_object_get_ex(interfaces,
-                    g_pcat_main_iface_names[i], &interface))
-                {
-                    continue;
-                }
-
-                if(json_object_object_get_ex(interface, "up", &child))
-                {
-                    if(!json_object_get_boolean(child))
+                    if(g_pcat_main_iface_route_mode[i]!=
+                        PCAT_MANAGER_ROUTE_MODE_MOBILE)
                     {
                         continue;
                     }
-                }
-                else
-                {
-                    continue;
-                }
 
-                if(json_object_object_get_ex(interface, "running", &child))
+                    command = g_strdup_printf(
+                        "ubus call network.interface.%s down",
+                        g_pcat_main_iface_names[i]);
+                    g_spawn_command_line_sync(command, NULL, NULL, NULL, NULL);
+                    g_free(command);
+                }
+            }
+
+            if(!wan_ethernet_available &&
+                g_pcat_main_network_route_mode!=PCAT_MANAGER_ROUTE_MODE_MOBILE)
+            {
+                for(i=0;i<PCAT_MAIN_IFACE_LAST;i++)
                 {
-                    if(json_object_get_boolean(child))
+                    if(g_pcat_main_iface_route_mode[i]!=
+                        PCAT_MANAGER_ROUTE_MODE_MOBILE)
                     {
-                        mwan3_status_all_not_running = FALSE;
+                        continue;
                     }
-                }
 
-                if(json_object_object_get_ex(interface, "status", &child))
-                {
-                    if(g_strcmp0(json_object_get_string(child), "error")==0)
-                    {
-                        mwan3_interface_check_flag = FALSE;
-
-                        break;
-                    }
-                }
-                else
-                {
-                    mwan3_interface_check_flag = FALSE;
-
-                    break;
+                    command = g_strdup_printf(
+                        "ubus call network.interface.%s up",
+                        g_pcat_main_iface_names[i]);
+                    g_spawn_command_line_sync(command, NULL, NULL, NULL, NULL);
+                    g_free(command);
                 }
             }
-
-            if(mwan3_status_all_not_running)
-            {
-                mwan3_interface_check_flag = FALSE;
-            }
-
-            if(mwan3_interface_check_flag)
-            {
-                mwan3_interface_check_timestamp = g_get_monotonic_time();
-            }
-
-            if(!json_object_object_get_ex(root, "policies", &policies))
-            {
-                json_object_put(root);
-
-                break;
-            }
-
-            if(json_object_object_get_ex(policies, "ipv4", &protocol))
-            {
-                if(json_object_object_get_ex(protocol, "balanced", &rules))
-                {
-                    rules_len = json_object_array_length(rules);
-
-                    for(i=0;i<rules_len;i++)
-                    {
-                        rule = json_object_array_get_idx(rules, i);
-                        iface = NULL;
-                        percent = 0;
-
-                        if(json_object_object_get_ex(rule, "interface",
-                            &child))
-                        {
-                            iface = json_object_get_string(child);
-                        }
-                        if(json_object_object_get_ex(rule, "percent",
-                            &child))
-                        {
-                            percent = json_object_get_int(child);
-                        }
-
-                        route_iface = PCAT_MAIN_IFACE_LAST;
-
-                        if(percent > 0)
-                        {
-                            for(j=0;j<PCAT_MAIN_IFACE_LAST;j++)
-                            {
-                                if(g_strcmp0(iface,
-                                    g_pcat_main_iface_names[j])==0)
-                                {
-                                    route_iface = j;
-
-                                    ret = TRUE;
-
-                                    break;
-                                }
-                            }
-                        }
-
-                        if(ret)
-                        {
-                            if(route_iface!=PCAT_MAIN_IFACE_LAST)
-                            {
-                                g_pcat_main_network_route_mode =
-                                    g_pcat_main_iface_route_mode[
-                                    route_iface];
-                            }
-
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if(ret)
-            {
-                json_object_put(root);
-
-                break;
-            }
-
-            if(json_object_object_get_ex(policies, "ipv6", &protocol))
-            {
-                if(json_object_object_get_ex(protocol, "balanced", &rules))
-                {
-                    rules_len = json_object_array_length(rules);
-
-                    for(i=0;i<rules_len;i++)
-                    {
-                        rule = json_object_array_get_idx(rules, i);
-                        iface = NULL;
-                        percent = 0;
-
-                        if(json_object_object_get_ex(rule, "interface",
-                            &child))
-                        {
-                            iface = json_object_get_string(child);
-                        }
-                        if(json_object_object_get_ex(rule, "percent",
-                            &child))
-                        {
-                            percent = json_object_get_int(child);
-                        }
-
-                        route_iface = PCAT_MAIN_IFACE_LAST;
-
-                        if(percent > 0)
-                        {
-                            for(j=0;j<PCAT_MAIN_IFACE_LAST;j++)
-                            {
-                                if(g_strcmp0(iface,
-                                    g_pcat_main_iface_names[j])==0)
-                                {
-                                    route_iface = j;
-
-                                    ret = TRUE;
-
-                                    break;
-                                }
-                            }
-                        }
-
-                        if(ret)
-                        {
-                            if(route_iface!=PCAT_MAIN_IFACE_LAST)
-                            {
-                                g_pcat_main_network_route_mode =
-                                    g_pcat_main_iface_route_mode[
-                                    route_iface];
-                            }
-
-                            break;
-                        }
-                    }
-                }
-            }
-
-            json_object_put(root);
-        }
-        G_STMT_END;
-
-        g_free(mwan3_stdout);
-
-        if(!ret)
-        {
-            if(g_pcat_main_network_route_mode >
-                PCAT_MANAGER_ROUTE_MODE_UNKNOWN)
-            {
-                g_pcat_main_network_route_mode =
-                    PCAT_MANAGER_ROUTE_MODE_NONE;
-            }
-        }
-
-        if(g_get_monotonic_time() >
-            mwan3_interface_check_timestamp +
-            PCAT_MAIN_MWAN_STATUS_CHECK_TIMEOUT * 1000000L)
-        {
-            g_spawn_command_line_sync("mwan3 restart", NULL,
-                NULL, NULL, NULL);
-
-            mwan3_interface_check_timestamp = g_get_monotonic_time();
-
-            g_warning("MWAN3 status is not correct, try to restart!");
         }
         else
         {
-            if(mwan3_interface_check_flag)
-            {
-                g_debug("MWAN3 status check OK!");
-            }
-            else
-            {
-                g_debug("MWAN3 status ERROR!");
-            }
+            pcat_modem_manager_iface_state_set(TRUE);
         }
 
-        for(i=0;i<50 && g_pcat_main_mwan_route_check_flag;i++)
-        {
-            g_usleep(100000);
-        }
+        g_pcat_main_network_route_mode = wan_ethernet_available ?
+            PCAT_MANAGER_ROUTE_MODE_WIRED : PCAT_MANAGER_ROUTE_MODE_MOBILE;
     }
 
     return NULL;
@@ -1186,6 +956,9 @@ int main(int argc, char *argv[])
             "communicate with other processes.");
     }
 
+    g_pcat_main_network_modem_iface_auto_stop =
+        g_pcat_main_user_config_data.modem_iface_auto_stop;
+
     if(!g_pcat_main_cmd_distro)
     {
         if(pthread_create(&mwan_policy_check_thread, NULL,
@@ -1266,4 +1039,9 @@ PCatManagerRouteMode pcat_main_network_route_mode_get()
 gboolean pcat_main_is_running_on_distro()
 {
     return g_pcat_main_cmd_distro;
+}
+
+void pcat_main_network_modem_iface_auto_stop_set(gboolean enabled)
+{
+    g_pcat_main_network_modem_iface_auto_stop = enabled;
 }

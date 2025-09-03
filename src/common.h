@@ -84,6 +84,7 @@ typedef struct _PCatManagerUserConfigData
     gboolean modem_disable_ipv6;
     gboolean modem_disable_5g_fail_auto_reset;
     guint modem_5g_fail_timeout;
+    gboolean modem_iface_auto_stop;
 }PCatManagerUserConfigData;
 
 PCatManagerMainConfigData *pcat_main_config_data_get();
@@ -92,6 +93,7 @@ void pcat_main_user_config_data_sync();
 void pcat_main_request_shutdown(gboolean send_pmu_request);
 PCatManagerRouteMode pcat_main_network_route_mode_get();
 gboolean pcat_main_is_running_on_distro();
+void pcat_main_network_modem_iface_auto_stop_set(gboolean enabled);
 
 G_END_DECLS
 

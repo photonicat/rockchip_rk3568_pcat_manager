@@ -153,10 +153,9 @@ Request:
 }
 ```
 
-- auto: (default) "modem-iface-auto-stop-if-wired": 1
-- 4g/5g only: (just set wan disabled)
-- ethernet only: (just set wwan disabled, )
-
+- auto: (default) set "modem-iface-auto-stop-if-wired": 1
+- 4g/5g only: (just set wan disabled) set "modem-iface-auto-stop-if-wired": 0
+- ethernet only: (just set wwan disabled) set "modem-iface-auto-stop-if-wired": 0
 
 Response:
 ```json

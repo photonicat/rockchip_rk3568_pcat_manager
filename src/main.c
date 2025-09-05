@@ -677,6 +677,16 @@ static void *pcat_main_mwan_policy_check_thread_func(void *user_data)
 
         g_pcat_main_network_route_mode = wan_ethernet_available ?
             PCAT_MANAGER_ROUTE_MODE_WIRED : PCAT_MANAGER_ROUTE_MODE_MOBILE;
+
+        for(i=0;i<30;i++)
+        {
+            g_usleep(100000);
+
+            if(!g_pcat_main_mwan_route_check_flag)
+            {
+                break;
+            }
+        }
     }
 
     return NULL;

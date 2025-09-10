@@ -662,7 +662,10 @@ static gboolean pcat_modem_manager_scan_usb_devs(PCatModemManagerData *mm_data)
 
     libusb_free_device_list(devs, 1);
 
-    mm_data->device_type = device_type;
+    if(mm_data->device_type < device_type)
+    {
+        mm_data->device_type = device_type;
+    }
     mm_data->modem_exist = modem_exist;
 
     return modem_exist;

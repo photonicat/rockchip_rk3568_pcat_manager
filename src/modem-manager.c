@@ -288,7 +288,8 @@ static inline void pcat_modem_manager_external_control_exec_line_parser(
                         mm_data->modem_signal_strength = signal_value;
                     }
 
-                    g_message("Modem signal strength: %d", mm_data->modem_signal_strength);
+                    g_message("Modem signal strength: %d",
+                        mm_data->modem_signal_strength);
                 }
                 else if(g_strcmp0(cmd, "SIMSTATUS")==0)
                 {

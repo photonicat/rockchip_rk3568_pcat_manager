@@ -28,7 +28,7 @@ typedef enum {
     PCAT_MODEM_MANAGER_SIM_STATE_PIN = 3,
     PCAT_MODEM_MANAGER_SIM_STATE_PUK = 4,
     PCAT_MODEM_MANAGER_SIM_STATE_NETWORK_PERSONALIZATION = 5,
-    PCAT_MODEM_MANAGER_SIM_STATE_BAD = 6,
+    PCAT_MODEM_MANAGER_SIM_STATE_BAD = 6
 }PCatModemManagerSIMState;
 
 gboolean pcat_modem_manager_init();
@@ -45,4 +45,5 @@ gboolean pcat_modem_manager_iface_state_get();
 G_END_DECLS
 
 #endif
+
 

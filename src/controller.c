@@ -728,6 +728,7 @@ static void pcat_controller_command_modem_status_get_func(
     gint code = 0;
     const gchar *mode_str = "none", *sim_state_str = "absent";
     gboolean rfkill_state = FALSE;
+    gboolean iface_enabled;
 
     rroot = json_object_new_object();
     child = json_object_new_string(command);
@@ -770,51 +771,64 @@ static void pcat_controller_command_modem_status_get_func(
         }
     }
 
-    switch(sim_state)
+    iface_enabled = pcat_modem_manager_iface_state_get();
+
+    if(iface_enabled)
     {
-        case PCAT_MODEM_MANAGER_SIM_STATE_ABSENT:
+        switch(sim_state)
         {
-            sim_state_str = "absent";
-            break;
+            case PCAT_MODEM_MANAGER_SIM_STATE_ABSENT:
+            {
+                sim_state_str = "absent";
+                break;
+            }
+            case PCAT_MODEM_MANAGER_SIM_STATE_NOT_READY:
+            {
+                sim_state_str = "not-ready";
+                break;
+            }
+            case PCAT_MODEM_MANAGER_SIM_STATE_READY:
+            {
+                sim_state_str = "ready";
+                break;
+            }
+            case PCAT_MODEM_MANAGER_SIM_STATE_PIN:
+            {
+                sim_state_str = "need-pin";
+                break;
+            }
+            case PCAT_MODEM_MANAGER_SIM_STATE_PUK:
+            {
+                sim_state_str = "need-puk";
+                break;
+            }
+            case PCAT_MODEM_MANAGER_SIM_STATE_NETWORK_PERSONALIZATION:
+            {
+                sim_state_str = "personalized-network";
+                break;
+            }
+            case PCAT_MODEM_MANAGER_SIM_STATE_BAD:
+            {
+                sim_state_str = "bad";
+                break;
+            }
+            default:
+            {
+                break;
+            }
         }
-        case PCAT_MODEM_MANAGER_SIM_STATE_NOT_READY:
-        {
-            sim_state_str = "not-ready";
-            break;
-        }
-        case PCAT_MODEM_MANAGER_SIM_STATE_READY:
-        {
-            sim_state_str = "ready";
-            break;
-        }
-        case PCAT_MODEM_MANAGER_SIM_STATE_PIN:
-        {
-            sim_state_str = "need-pin";
-            break;
-        }
-        case PCAT_MODEM_MANAGER_SIM_STATE_PUK:
-        {
-            sim_state_str = "need-puk";
-            break;
-        }
-        case PCAT_MODEM_MANAGER_SIM_STATE_NETWORK_PERSONALIZATION:
-        {
-            sim_state_str = "personalized-network";
-            break;
-        }
-        case PCAT_MODEM_MANAGER_SIM_STATE_BAD:
-        {
-            sim_state_str = "bad";
-            break;
-        }
-        default:
-        {
-            break;
-        }
+    }
+    else
+    {
+        sim_state_str = "unknown";
+        signal_strength = -1;
     }
 
     child = json_object_new_string(mode_str);
     json_object_object_add(rroot, "mode", child);
+
+    child = json_object_new_int(iface_enabled ? 1 : 0);
+    json_object_object_add(rroot, "interface-enabled", child);
 
     child = json_object_new_int(rfkill_state ? 1 : 0);
     json_object_object_add(rroot, "rfkill-state", child);

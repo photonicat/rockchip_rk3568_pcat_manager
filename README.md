@@ -93,13 +93,15 @@ Response:
   "command": "modem-status-get", 
   "code": 0,
   "mode": "LTE",
-  "sim-state": 2,
+  "sim-state": "ready",
+  "interface-enabled": 1,
   "rfkill-state": 0,
   "signal-strength": -75,
   "isp-name": "Carrier",
   "isp-plmn": "12345"
 }
 ```
+Note: sim-state, signal-strength, isp-name, isp-plmn are only available when interface-enabled is not 0.
 
 **pmu-io-set**
 Request:

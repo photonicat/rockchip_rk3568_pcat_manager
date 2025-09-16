@@ -637,23 +637,27 @@ static gboolean pcat_modem_manager_scan_usb_devs(PCatModemManagerData *mm_data)
                 break;
             }
         }
-        if(usb_data->external_control_exec!=NULL)
+
+        if(mm_data->modem_iface_enabled)
         {
-            if(mm_data->system_first_run)
+            if(usb_data->external_control_exec!=NULL)
             {
-                g_spawn_command_line_async("ModemManagerSwitch.sh disable",
-                    NULL);
-                mm_data->system_first_run = FALSE;
+                if(mm_data->system_first_run)
+                {
+                    g_spawn_command_line_async("ModemManagerSwitch.sh disable",
+                        NULL);
+                    mm_data->system_first_run = FALSE;
+                }
+                pcat_modem_manager_run_external_exec(mm_data, usb_data);
             }
-            pcat_modem_manager_run_external_exec(mm_data, usb_data);
-        }
-        else
-        {
-            if(mm_data->system_first_run)
+            else
             {
-                g_spawn_command_line_async("ModemManagerSwitch.sh enable",
-                    NULL);
-                mm_data->system_first_run = FALSE;
+                if(mm_data->system_first_run)
+                {
+                    g_spawn_command_line_async("ModemManagerSwitch.sh enable",
+                        NULL);
+                    mm_data->system_first_run = FALSE;
+                }
             }
         }
 
@@ -711,6 +715,8 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
                     }
                 }
 
+                pcat_modem_manager_scan_usb_devs(mm_data);
+
                 break;
             }
 
@@ -722,11 +728,9 @@ static gpointer pcat_modem_manager_modem_work_thread_func(
                     break;
                 }
 
-                if(mm_data->modem_iface_enabled)
-                {
-                    pcat_modem_manager_scan_usb_devs(mm_data);
-                }
-                else
+                pcat_modem_manager_scan_usb_devs(mm_data);
+
+                if(!mm_data->modem_iface_enabled)
                 {
                     mm_data->state = PCAT_MODEM_MANAGER_STATE_READY;
                 }

@@ -179,6 +179,9 @@ static void pcat_pmu_poweroff_request(PCatPMUManagerData *pmu_data)
     {
         pmu_data->shutdown_request = TRUE;
 
+        g_file_set_contents("/tmp/pcat-shutdown-flag.tmp", "shutdown",
+            -1, NULL);
+
         g_message("Request poweroff.");
     }
     else
